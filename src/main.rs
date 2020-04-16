@@ -1,13 +1,17 @@
 extern crate csv;
+#[macro_use]
+extern crate lopdf;
 extern crate serde;
 extern crate serde_json;
 extern crate tinyfiledialogs as tfd;
 extern crate web_view;
 
 use serde::{Serialize, Deserialize};
-use tfd::MessageBoxIcon;
+use tfd::{MessageBoxIcon, YesNo};
 use web_view::{Content};
 use std::collections::HashMap;
+
+mod pdf;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Task {
@@ -43,12 +47,17 @@ fn process_csv(path: String) -> Option<HashMap<u32, Vec<Order>>> {
     if rdr.is_ok() {
         let mut orders: HashMap<u32, Vec<Order>> = HashMap::new();
         for result in rdr.unwrap().deserialize() {
-            let order: Order = result.unwrap();
-            if orders.contains_key(&order.id) {
-                let items = orders.get_mut(&order.id).unwrap();
-                items.push(order);
+            if result.is_ok() {
+                let order: Order = result.unwrap();
+                if orders.contains_key(&order.id) {
+                    let items = orders.get_mut(&order.id).unwrap();
+                    items.push(order);
+                } else {
+                    orders.insert(order.id, vec![order]);
+                }
             } else {
-                orders.insert(order.id, vec![order]);
+                tfd::message_box_ok("Error", &format!("Error converting the file: {}", path), MessageBoxIcon::Error);
+                return None;
             }
         }
         return Some(orders);
@@ -59,8 +68,8 @@ fn process_csv(path: String) -> Option<HashMap<u32, Vec<Order>>> {
 }
 
 fn create_pdf(path: String, orders: HashMap<u32, Vec<Order>>) {
-    
-    tfd::message_box_ok("Complete", "The Dymo Labels for the B2D Orders have been created.", MessageBoxIcon::Info);
+
+    tfd::message_box_ok("Complete", "The Dymo Labels for the Barn2Door orders have been created.", MessageBoxIcon::Info);
 }
 
 fn file_warning() {
@@ -68,12 +77,28 @@ fn file_warning() {
 }
 
 fn save_file() -> Option<String> {
-    return tfd::save_file_dialog("Save the labels PDF file...", "");
+    let path = tfd::save_file_dialog("Save the labels PDF file...", "order-labels.pdf");
+    if path.is_some() {
+        return path;
+    } else {
+        file_warning();
+        return None;
+    }
 }
 
 
 fn open_file() -> Option<String> {
-    return tfd::open_file_dialog("Please choose a Barn2Door csv file...", "", None);
+    let path = tfd::open_file_dialog("Please choose a Barn2Door csv file...", "", None);
+    if path.is_some() {
+        let file = path.unwrap();
+        match tfd::message_box_yes_no("Confirm File", &format!("You would like to make labels for {}", file), MessageBoxIcon::Question, YesNo::Yes) {
+            YesNo::Yes => return Some(file),
+            YesNo::No => return None,
+        }
+    } else {
+        file_warning();
+        return None;
+    }
 }
 
 fn main() {
@@ -84,14 +109,8 @@ fn main() {
             let save_path = save_file();
             if save_path.is_some() {
                 create_pdf(save_path.unwrap(), orders.unwrap());
-            } else {
-                file_warning();
             }
-        } else {
-            tfd::message_box_ok("Error", "Error processing the csv file", MessageBoxIcon::Error);    
         }
-    } else {
-        file_warning();
     }
     /*
     web_view::builder()
