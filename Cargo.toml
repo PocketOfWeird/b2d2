@@ -1,0 +1,13 @@
+[package]
+name = "b2d2"
+version = "0.1.0"
+authors = ["Pocket Of Weird <hartzlernathan@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tinyfiledialogs = "3.0"
+web-view = "0.6"
