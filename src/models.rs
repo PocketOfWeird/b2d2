@@ -1,6 +1,6 @@
 use serde::{Deserialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Order {
     #[serde(rename = "Order #")]
     pub id: u32,
