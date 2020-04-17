@@ -6,43 +6,34 @@ extern crate serde_json;
 extern crate tinyfiledialogs as tfd;
 extern crate web_view;
 
-use serde::{Serialize, Deserialize};
 use tfd::{MessageBoxIcon, YesNo};
-use web_view::{Content};
 use std::collections::HashMap;
 
+mod models;
 mod pdf;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct Task {
-    command: String,
-    data: String
-}
-#[derive(Debug, Deserialize)]
-struct Order {
-    #[serde(rename = "Order #")]
-    id: u32,
-    #[serde(rename = "Fulfillment Type")]
-    fulfillment: Option<String>,
-    #[serde(rename = "Paid")]
-    paid: String,
-    #[serde(rename = "Item")]
-    item: String,
-    #[serde(rename = "Unit Size")]
-    unit_size: Option<String>,
-    #[serde(rename = "Quantity")]
-    quantity: Option<u32>,
-    #[serde(rename = "Price")]
-    price: Option<String>,
-    #[serde(rename = "Customer")]
-    customer: String,
-    #[serde(rename = "Pickup Address")]
-    addr_pickup: Option<String>,
-    #[serde(rename = "Delivery Address")]
-    addr_delivery: Option<String>,
+use models::Order;
+
+fn handle_csv_conversion_error(path: &String, error: csv::Error) -> bool {
+    if path.ends_with(".csv") {
+        let message = format!(
+            "Error converting the CSV file:
+            \n{}
+            \n----------------------------------------------------------------
+            \nPlease send the file and a picture of this error to Nathan H:
+            \n----------------------------------------------------------------
+            \n{:?}", 
+            path, 
+            error
+        );
+        return file_error(&message, false);
+    } else {
+        let message = format!("The file is not a CSV file:\n{}\nWould you like to choose another file?", path);
+        return file_error(&message, true);
+    }
 }
 
-fn process_csv(path: String) -> Option<HashMap<u32, Vec<Order>>> {
+fn process_csv(path: String) -> (Option<HashMap<u32, Vec<Order>>>, bool) {
     let rdr = csv::Reader::from_path(&path);
     if rdr.is_ok() {
         let mut orders: HashMap<u32, Vec<Order>> = HashMap::new();
@@ -56,24 +47,56 @@ fn process_csv(path: String) -> Option<HashMap<u32, Vec<Order>>> {
                     orders.insert(order.id, vec![order]);
                 }
             } else {
-                tfd::message_box_ok("Error", &format!("Error converting the file: {}", path), MessageBoxIcon::Error);
-                return None;
+                let trying_again = handle_csv_conversion_error(&path, result.unwrap_err());
+                if trying_again {
+                    return (None, true);
+                } else {
+                    return (None, false);
+                }
             }
         }
-        return Some(orders);
+        return (Some(orders), false);
     } else {
-        tfd::message_box_ok("Error", &format!("Error opening the file: {}", path), MessageBoxIcon::Error);
-        return None;
+        let question = format!("There was an error opening the file:\n{}\nWould you like to try again?", path);
+        let trying_again = file_confirm(&question, Some(true));
+        return (None, trying_again);
     }
 }
 
 fn create_pdf(path: String, orders: HashMap<u32, Vec<Order>>) {
+    match pdf::generate_document(&path, &orders) {
+        Ok(message) => tfd::message_box_ok("Complete", &message, MessageBoxIcon::Info),
+        Err(error) => tfd::message_box_ok("Error", &error, MessageBoxIcon::Error),
+    }
+}
 
-    tfd::message_box_ok("Complete", "The Dymo Labels for the Barn2Door orders have been created.", MessageBoxIcon::Info);
+fn file_error(message: &String, confirm: bool) -> bool {
+    if confirm {
+        return file_confirm(message, Some(true));
+    } else {
+        tfd::message_box_ok("Error", &message, MessageBoxIcon::Error);
+        return false;
+    } 
 }
 
 fn file_warning() {
     tfd::message_box_ok("Warning", "You didn't choose a file.", MessageBoxIcon::Warning);
+}
+
+fn file_confirm(question: &String, error: Option<bool>) -> bool {
+    let title = match error.is_some() {
+        true => "File Error",
+        false => "Confirm File",
+    };
+    let icon = match error.is_some() {
+        true => MessageBoxIcon::Error,
+        false => MessageBoxIcon::Question,
+    };
+
+    match tfd::message_box_yes_no(title, question, icon, YesNo::Yes) {
+        YesNo::Yes => true,
+        YesNo::No => false,
+    }
 }
 
 fn save_file() -> Option<String> {
@@ -91,9 +114,11 @@ fn open_file() -> Option<String> {
     let path = tfd::open_file_dialog("Please choose a Barn2Door csv file...", "", None);
     if path.is_some() {
         let file = path.unwrap();
-        match tfd::message_box_yes_no("Confirm File", &format!("You would like to make labels for {}", file), MessageBoxIcon::Question, YesNo::Yes) {
-            YesNo::Yes => return Some(file),
-            YesNo::No => return None,
+        let question = format!("You would like to make labels for\n{}", file);
+        if file_confirm(&question, None) {
+            return Some(file);
+        } else {
+            return None;
         }
     } else {
         file_warning();
@@ -104,33 +129,17 @@ fn open_file() -> Option<String> {
 fn main() {
     let file_path = open_file();
     if file_path.is_some() {
-        let orders = process_csv(file_path.unwrap());
+        let (orders, trying_again) = process_csv(file_path.unwrap());
         if orders.is_some() {
             let save_path = save_file();
             if save_path.is_some() {
                 create_pdf(save_path.unwrap(), orders.unwrap());
             }
+        } else if trying_again {
+            // recursive call to main, until the user chooses not to try again after an error, 
+            // or the pdf creation completes successfully
+            main();
         }
     }
-    /*
-    web_view::builder()
-        .title("B2D2")
-        .content(Content::Html(include_str!("static/index.html")))
-        .size(800, 500)
-        .resizable(true)
-        .user_data("")
-        .invoke_handler(|_webview, arg| {
-            let task: Task = serde_json::from_str(arg).unwrap();
-
-            match task.command.as_str() {
-                "open" => open_file(),
-                _ => (),
-            }
-
-            Ok(())
-        })
-        .run()
-        .unwrap();
-    */
 }
 
