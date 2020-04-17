@@ -69,11 +69,11 @@ fn generate_page(order: &Vec<Order>, page_ids: &mut Vec<Object>, pages_id: (u32,
         draw_line(line_height, &mut operations);
         
         // add item
-        let mut font_size: u8 = 13;
-        if order_line.item.len() > 23 {
-            font_size = 12;
-        } 
-        generate_text_block("F1", font_size, 18, row_height, &order_line.item, &mut operations);
+        let item = match order_line.item.len() > 23 {
+            true => format!("{}..", order_line.item[0..21].to_owned()),
+            false => order_line.item.to_owned(),
+        }; 
+        generate_text_block("F1", 13, 18, row_height, &item, &mut operations);
         
         // add qyt
         generate_text_block("F1", 11, 180, row_height, &order_line.quantity.unwrap().to_string(), &mut operations);
@@ -140,8 +140,8 @@ pub fn generate_document(path: &String, orders: &HashMap<u32, Vec<Order>>) -> Re
            for order_line in &order[split_point..] {
                order_p2.push(order_line.clone());
            }
-           let customer_p1 = format!("{} 1 of 2", order_p1.first().unwrap().customer);
-           let customer_p2 = format!("{} 2 of 2", order_p2.first().unwrap().customer);
+           let customer_p1 = format!("{} 1of2", order_p1.first().unwrap().customer);
+           let customer_p2 = format!("{} 2of2", order_p2.first().unwrap().customer);
            generate_page(&Vec::from(order_p1), &mut page_ids, pages_id, &mut doc, Some(customer_p1));
            generate_page(&Vec::from(order_p2), &mut page_ids, pages_id, &mut doc, Some(customer_p2));
         } else {
