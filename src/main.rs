@@ -2,9 +2,7 @@ extern crate csv;
 #[macro_use]
 extern crate lopdf;
 extern crate serde;
-extern crate serde_json;
 extern crate tinyfiledialogs as tfd;
-extern crate web_view;
 
 use tfd::{MessageBoxIcon, YesNo};
 use std::collections::HashMap;
