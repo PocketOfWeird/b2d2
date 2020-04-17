@@ -20,6 +20,92 @@ fn draw_line(line_height: u16, operations: &mut Vec<Operation>) {
     operations.push(Operation::new("S", vec![]));
 }
 
+fn generate_page(order: &Vec<Order>, page_ids: &mut Vec<Object>, pages_id: (u32, u16), doc: &mut Document, customer_part: Option<String>) {
+    let mut operations: Vec<Operation> = Vec::new();
+
+    // generate the text blocks for the headings
+    // Customer on top
+    let first_order_line = order.first().unwrap();
+    // if this is a split label, the customer_part will be present
+    let customer = match customer_part.is_some() {
+        true => customer_part.unwrap(),
+        false => first_order_line.customer.to_owned(),
+    }; 
+    generate_text_block("F2", 22, 18, 390, &customer, &mut operations);
+    // Fullfillment Type next, making sure it isn't blank
+    if first_order_line.fulfillment.is_some() {
+        let fulfillment = first_order_line.fulfillment.as_ref().unwrap();
+        generate_text_block("F2", 18, 18, 369, &fulfillment, &mut operations)
+    } else {
+            let fulfillment = order.last().unwrap().fulfillment.as_ref().unwrap();
+            generate_text_block("F2", 18, 18, 369, &fulfillment, &mut operations)
+    }
+    // Order Id is next
+    let id_text = format!("Order # {}", first_order_line.id);
+    generate_text_block("F1", 12, 18, 354, &id_text, &mut operations);
+    // Column Headings are next
+    generate_text_block("F1", 10, 18, 340, &"Item".to_owned(), &mut operations);
+    generate_text_block("F1", 10, 180, 340, &"QTY".to_owned(), &mut operations);
+    generate_text_block("F1", 10, 212, 340, &"Unit".to_owned(), &mut operations);
+
+    
+    // generate the text blocks for the items
+    let row_pos: u16 = 323;
+    let mut i: u16 = 0;
+    
+    for order_line in order {
+        // skip blank Fullfullment Type items in the order
+        if order_line.fulfillment.is_none() {
+            continue;
+        } 
+        // skip Delivery Charge items in the order
+        if order_line.item.contains("Delivery") {
+            continue;
+        }
+        let row_height = row_pos - (i * 15);
+
+        // draw line above
+        let line_height = row_height + 14;
+        draw_line(line_height, &mut operations);
+        
+        // add item
+        let mut font_size: u8 = 13;
+        if order_line.item.len() > 23 {
+            font_size = 12;
+        } 
+        generate_text_block("F1", font_size, 18, row_height, &order_line.item, &mut operations);
+        
+        // add qyt
+        generate_text_block("F1", 11, 180, row_height, &order_line.quantity.unwrap().to_string(), &mut operations);
+
+        // add unit 
+        generate_text_block("F1", 10, 212, row_height, &order_line.unit_size.as_ref().unwrap(), &mut operations);
+
+        // if last row, draw line below
+        let length: u16 = order.len().try_into().expect("Number of items in order is way too large! Larger than 2^63 - 1.");
+        if length == i + 1 {
+            let line_height = row_height - 1;
+            draw_line(line_height, &mut operations);
+        }
+        i = i + 1; 
+    }
+    
+    
+    // Add the operations to the content
+    let content = Content {
+        operations: operations,
+    };
+    // Add the content and new page to the document
+    let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+    });
+
+    page_ids.push(page_id.into());
+}
+
 pub fn generate_document(path: &String, orders: &HashMap<u32, Vec<Order>>) -> Result<String, String> {
     let mut doc = Document::with_version("1.5");
     let pages_id = doc.new_object_id();
@@ -45,87 +131,25 @@ pub fn generate_document(path: &String, orders: &HashMap<u32, Vec<Order>>) -> Re
     let mut page_ids: Vec<Object> = Vec::new();
     for order_id in orders.keys() {
         let order = orders.get(&order_id).unwrap();
-        let mut operations: Vec<Operation> = Vec::new();
-        
-        // generate the text blocks for the headings
-        // Customer on top
-        let first_order_line = order.first().unwrap();
-        generate_text_block("F2", 22, 18, 390, &first_order_line.customer, &mut operations);
-        // Fullfillment Type next, making sure it isn't blank
-        if first_order_line.fulfillment.is_some() {
-            let fulfillment = first_order_line.fulfillment.as_ref().unwrap();
-            generate_text_block("F2", 18, 18, 369, &fulfillment, &mut operations)
-        } else {
-                let fulfillment = order.last().unwrap().fulfillment.as_ref().unwrap();
-                generate_text_block("F2", 18, 18, 369, &fulfillment, &mut operations)
-        }
-        // Order Id is next
-        let id_text = format!("Order # {}", first_order_line.id);
-        generate_text_block("F1", 12, 18, 354, &id_text, &mut operations);
-        // Column Headings are next
-        generate_text_block("F1", 10, 18, 340, &"Item".to_owned(), &mut operations);
-        generate_text_block("F1", 10, 170, 340, &"QTY".to_owned(), &mut operations);
-        generate_text_block("F1", 10, 212, 340, &"Unit".to_owned(), &mut operations);
-
-        
-        // generate the text blocks for the items
-        let row_pos: u16 = 323;
-        let mut i: u16 = 0;
         // check to make sure the number of items will fit on the label
         if order.len() * 16 > 323 - 18 {
-            println!("Too many items in order. Will not fit for order # {}", first_order_line.id);
+           // if it won't fit, split order into two labels
+           let split_point = order.len() / 2;
+           let order_p1 = &order[0..split_point];
+           let mut order_p2: Vec<Order> = Vec::new();
+           for order_line in &order[split_point..] {
+               order_p2.push(order_line.clone());
+           }
+           let customer_p1 = format!("{} 1 of 2", order_p1.first().unwrap().customer);
+           let customer_p2 = format!("{} 2 of 2", order_p2.first().unwrap().customer);
+           generate_page(&Vec::from(order_p1), &mut page_ids, pages_id, &mut doc, Some(customer_p1));
+           generate_page(&Vec::from(order_p2), &mut page_ids, pages_id, &mut doc, Some(customer_p2));
+        } else {
+            // Just make one label for the order
+            generate_page(order, &mut page_ids, pages_id, &mut doc, None);
         }
-        for order_line in order {
-            // skip blank Fullfullment Type items in the order
-            if order_line.fulfillment.is_none() {
-                continue;
-            } 
-            // skip Delivery Charge items in the order
-            if order_line.item.contains("Delivery") {
-                continue;
-            }
-            let row_height = row_pos - (i * 15);
-
-            // draw line above
-            let line_height = row_height + 14;
-            draw_line(line_height, &mut operations);
-            
-            // add item
-            let mut font_size: u8 = 13;
-            if order_line.item.len() > 20 {
-                font_size = 11;
-            } 
-            generate_text_block("F1", font_size, 18, row_height, &order_line.item, &mut operations);
-            
-            // add qyt
-            generate_text_block("F1", 11, 170, row_height, &order_line.quantity.unwrap().to_string(), &mut operations);
-
-            // add unit 
-            generate_text_block("F1", 10, 212, row_height, &order_line.unit_size.as_ref().unwrap(), &mut operations);
-
-            // if last row, draw line below
-            let length: u16 = order.len().try_into().expect("Number of items in order is way too large! Larger than 2^63 - 1.");
-            if length == i + 1 {
-                let line_height = row_height - 1;
-                draw_line(line_height, &mut operations);
-            }
-            i = i + 1; 
-        }
-        
-
-
-        let content = Content {
-            operations: operations,
-        };
-        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
-        let page_id = doc.add_object(dictionary! {
-            "Type" => "Page",
-            "Parent" => pages_id,
-            "Contents" => content_id,
-        });
-
-        page_ids.push(page_id.into());
     }
+
     let page_count: i64 = page_ids.len().try_into().expect("Number of orders is way too large! Larger than 2^63 - 1.");
 
     let pages = dictionary! {
