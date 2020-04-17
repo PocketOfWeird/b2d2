@@ -69,6 +69,7 @@ fn generate_page(order: &Vec<Order>, page_ids: &mut Vec<Object>, pages_id: (u32,
         draw_line(line_height, &mut operations);
         
         // add item
+        // if the number of chars in the item is over 23, trunicate it and add ".."
         let item = match order_line.item.len() > 23 {
             true => format!("{}..", order_line.item[0..21].to_owned()),
             false => order_line.item.to_owned(),
