@@ -20,7 +20,7 @@ fn handle_csv_conversion_error(path: &String, error: csv::Error) -> bool {
             \n----------------------------------------------------------------
             \nPlease send the file and a picture of this error to Nathan H:
             \n----------------------------------------------------------------
-            \n{:?}", 
+            \n{}", 
             path, 
             error
         );

@@ -214,7 +214,7 @@ pub fn generate_document(path: &String, orders: &HashMap<u32, Vec<Order>>) -> Re
             \n-------------------------------------------------
             \nPlease send a picture of this error to Nathan H:
             \n-------------------------------------------------
-            \n{:?}", 
+            \n{}", 
             path, 
             err
         ));
